@@ -4,6 +4,10 @@ using UnityEngine;
 
 public class Slingshot : MonoBehaviour
 {
+    [SerializeField] private LineRenderer rubber;
+    [SerializeField] private Transform firstPoint;
+    [SerializeField] private Transform secondPoint;
+
     [Header("Inscribed")]
     public GameObject projectilePrefab;
     public float velocityMult = 10f;
@@ -14,6 +18,29 @@ public class Slingshot : MonoBehaviour
     public Vector3 launchPos;
     public GameObject projectile;
     public bool aimingMode;
+
+    [Header("Sound")]
+    public AudioClip releaseSound;     // Sound to play when releasing the projectile
+    private AudioSource audioSource;
+
+    [Header("Camera Shake")]
+    public CameraShake cameraShake;
+
+    void Start(){
+        rubber.positionCount = 3;
+        rubber.SetPosition(0, firstPoint.position);
+        rubber.SetPosition(2, secondPoint.position);
+
+        Vector3 middlePoint = (firstPoint.position + secondPoint.position) / 2; // Midpoint between first and second points
+        rubber.SetPosition(1, middlePoint);
+
+        audioSource = GetComponent<AudioSource>();
+
+        if (audioSource == null) {
+            Debug.LogError("No AudioSource found on the Slingshot object!");
+        }
+    }
+
     void Awake(){
         Transform launchPointTrans = transform.Find("LaunchPoint");
         launchPoint = launchPointTrans.gameObject;
@@ -42,35 +69,62 @@ public class Slingshot : MonoBehaviour
 
         //get current pos in 2d screen coords
         Vector3 mousePos2d = Input.mousePosition;
-        mousePos2d.z = -Camera.main.transform.position.z;
+        float zDistanceFromCamera = Camera.main.WorldToScreenPoint(launchPos).z;
+        mousePos2d.z = zDistanceFromCamera; // Set the z-distance based on the world position of the launch point
+
+        // Convert the mouse position to 3D world coordinates
         Vector3 mousePos3d = Camera.main.ScreenToWorldPoint(mousePos2d);
 
-        //find delta from the launchPos to mousePos3d
+        // Find the delta from the launch position to the mouse position in 3D
         Vector3 mouseDelta = mousePos3d - launchPos;
-        //limit mousedelta to the radius of the slingshot spherecollider
+
+        // Limit the mouse delta to the radius of the slingshot's sphere collider
         float maxMagnitude = this.GetComponent<SphereCollider>().radius;
-        if(mouseDelta.magnitude > maxMagnitude){
+        if (mouseDelta.magnitude > maxMagnitude) {
             mouseDelta.Normalize();
             mouseDelta *= maxMagnitude;
         }
-        //move projectile to new pos
+
+        // Move the projectile to the new position
         Vector3 projPos = launchPos + mouseDelta;
         projectile.transform.position = projPos;
 
-        if(Input.GetMouseButtonUp(0)){
-            //the mouse has been released
+        // Update the rubber band's middle point to follow the projectile
+        rubber.SetPosition(1, projectile.transform.position);
+
+        // Check if the mouse button has been released
+        if (Input.GetMouseButtonUp(0)) {
             aimingMode = false;
             Rigidbody projRB = projectile.GetComponent<Rigidbody>();
             projRB.isKinematic = false;
             projRB.collisionDetectionMode = CollisionDetectionMode.Continuous;
             projRB.velocity = -mouseDelta * velocityMult;
 
-            FollowCam.SWITCH_VIEW(FollowCam.eView.slingshot);
+            PlayReleaseSound();
+            StartCoroutine(cameraShake.Shake(0.5f, 0.5f));
 
+            // Camera and projectile interaction (optional)
+            FollowCam.SWITCH_VIEW(FollowCam.eView.slingshot);
             FollowCam.POI = projectile;
             Instantiate<GameObject>(projLinePrefab, projectile.transform);
             projectile = null;
+
+            // Notify mission manager that a shot has been fired
             MissionDemolishon.SHOT_FIRED();
+        }
+    }
+    Vector3 GetMousePositionInWorld(){
+        Vector3 mousePosition = Input.mousePosition;
+        mousePosition.z += Camera.main.transform.position.z;
+        Vector3 mousePositionInWorld = Camera.main.ScreenToWorldPoint(mousePosition);
+        mousePositionInWorld.z -= Camera.main.transform.position.z;
+        return mousePositionInWorld - transform.position;
+    }
+    void PlayReleaseSound(){
+        if (releaseSound != null && audioSource != null){
+            audioSource.PlayOneShot(releaseSound);
+        } else {
+            Debug.LogError("No release sound assigned or no AudioSource component found.");
         }
     }
 }
